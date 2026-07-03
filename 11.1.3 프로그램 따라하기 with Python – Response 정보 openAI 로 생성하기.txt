@@ -1,0 +1,100 @@
+
+[1. 프로그램 목적]
+
+■	프로그램 설명 : 이 프로그램은 OpenAI의 GPT 모델을 사용하여 유사도 검색 결과를 바탕으로 사용자에게 한국어로 도움을 주는 답변을 생성힌다. 검색 결과를 포맷팅하고, 이를 기반으로 GPT 모델에 프롬프트를 작성하여 API요청을 보낸다. 그리고 응답으로 부터 적절한 답변을 추출하여 반환한다.
+■	프로그램 기본 환경 : Phyton 3.10.10  /  Chroma DB
+■	사용 모델 : gpt-4o-mini
+■	특이 사항 : 설명의 편이를 위해 아래 프로그램은 특정 기능 중심으로 간단히 개발함
+           ( Ex> Response 생성 정보 설명)
+■   주요 내용
+
+주어진 검색 결과를 기준으로 답변을 생성( Generating)하는 프로그램을 개발해보도록 한다.
+
+1) 검색된 문장을 GPT 모델을 사용하여 답변을 생성하도록 한다.
+  . 검색결과 Input : 프로그램 내에서 주어짐
+2) Generating 사용 모델
+  . gpt-4o-mini
+3) Prompting 을 기준으로 답변을 생성한다.
+  . Input 정보 :  검색결과
+  . Output 정보 : 검색결과를 기준으로 GPT모델이 Prompting을 통해 생성한 답변
+4) 주의사항
+  .OPENAI API KEY는 발급받아서 사용하여야 한다.
+
+
+[ 2. 프로그램 소스 ]
+
+'''
+■	프로그램 기본 환경 : Phyton 3.10.10  /  Chroma DB 0.6.3
+■	사용 모델 : gpt-4o-mini
+'''
+
+#임포트 및 설정
+import os
+from openai import OpenAI
+
+os.environ["OPENAI_API_KEY"] = "OpenAI API 키를 입력"
+client = OpenAI()
+
+#답변을 생성하는 함수
+def generate_answer(similarity_results):
+
+    # 유사도 검색 결과를 프롬프트로 포맷팅
+    formatted_results = "\n".join([f"Result {i + 1}: {result}" for i, result in enumerate(similarity_results)])
+    print("formatted_results Answer:\n", formatted_results)
+
+    # ChatGPT API 호출을 위한 프롬프트 생성
+    # Create the prompt for the ChatGPT model
+
+    prompt = f"""
+     You are an AI assistant. Based on the following similarity search results, provide a helpful response to the user in Korean :
+     Similarity Search Results:
+     {formatted_results}
+     Answer (Please respond in Korean):
+     Example
+     "안녕하세요.
+      첫 번째는 무엇무엇입니다. 
+      두 번째 무엇무엇입니다. 
+      마지막으로, 무엇무엇입니다. 
+      추가적인 질문이 있으시면 언제든지 말씀해 주세요."
+     """
+
+    # OpenAI API 호출
+    response = client.chat.completions.create(
+        model="gpt-4o-mini",  # 사용할 GPT 모델 (예: 'gpt-4' 또는 'gpt-3.5-turbo')
+        messages=[
+            {"role": "system", "content": "You are a helpful assistant."},
+            {"role": "user", "content": prompt}
+        ],
+        max_tokens=500,  # 출력의 최대 길이
+        temperature= 1.0  # 창의성을 조정하는 파라미터 (0.0 ~ 1.0)
+    )
+
+    # 응답에서 텍스트 추출
+    answer = response.choices[0].message.content
+    return answer
+
+# 유사도 검색 결과 - Input 용
+similarity_results = [
+    "Result 1: A luxurious 4 bedroom villa by the beach with private pool.",
+    "Result 2: A spacious 3 bedroom penthouse with panoramic views of the ocean.",
+    "Result 3: A cozy 1 bedroom house in the suburbs with a large garden."
+]
+
+# ChatGPT 모델을 사용하여 답변 생성
+answer = generate_answer(similarity_results)
+print("Generated Answer:\n", answer)
+
+
+[ 3. 결과 프린트 ]
+
+안녕하세요.  
+첫 번째는 해변가에 위치한 럭셔리한 4베드룸 빌라로, 개인 수영장이 있습니다.  
+두 번째는 바다의 파노라마 전망을 갖춘 넓은 3베드룸 펜트하우스입니다.  
+마지막으로, 교외에 있는 아늑한 1베드룸 집으로, 큰 정원이 있습니다.  
+추가적인 질문이 있으시면 언제든지 말씀해 주세요.
+
+
+[ 4. 기타 ]
+
+AI 프로그램은 기존 프로그램과 다르게 "프람프팅-Prompting" 을 통해 아주 간단하고 쉽게 로직이 구현된다.
+즉, 프로그램을 잘 모르는 사람도 쉽게 접근할 수 있다.

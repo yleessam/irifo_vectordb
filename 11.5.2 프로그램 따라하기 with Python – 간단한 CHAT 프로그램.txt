@@ -1,0 +1,143 @@
+[1. 프로그램 목적]
+
+■	프로그램 설명 : 이 프로그램은 Streamlit을 사용한 개인문서관리RAG(문서기반생성 응답) 시스템이다. 사용자가 문서를 업로드하면 문서 내용을 Embedding하고, 그 내용을 바탕으로 질문에 응답하는 챗봇시스템이다.
+■	프로그램 기본 환경 : Phyton 3.10.10 /  FASSIS 라이브러리 / Streamlit 라이브러리
+■	사용 모델 : gpt-4
+
+
+[ 2. 프로그램 소스 ]
+import os
+import streamlit as st
+from dotenv import load_dotenv
+from langchain_community.chat_models import ChatOpenAI
+from langchain_community.vectorstores import FAISS
+from langchain_community.embeddings import OpenAIEmbeddings
+from langchain.text_splitter import CharacterTextSplitter
+from langchain.schema import ChatMessage, HumanMessage, SystemMessage
+from langchain.callbacks.base import BaseCallbackHandler
+from pdfminer.high_level import extract_text
+
+# 환경 변수 로드
+load_dotenv()
+os.environ["OPENAI_API_KEY"] = "OpenAI API Key를 입력"
+
+# 임베딩 초기화
+embedding_model = OpenAIEmbeddings()
+
+class MarkdownStreamHandler(BaseCallbackHandler):
+    """
+    Streamlit 마크다운 컨테이너에 생성된 토큰을 실시간으로 스트리밍하는 사용자 정의 핸들러.
+    """
+    def __init__(self, output_container, initial_content=""):
+        self.output_container = output_container
+        self.generated_content = initial_content
+
+    def on_llm_new_token(self, token: str, **kwargs) -> None:
+        self.generated_content += token
+        self.output_container.markdown(self.generated_content)
+
+def extract_text_from_pdf(file):
+    """pdfminer를 사용하여 PDF 파일에서 텍스트 추출."""
+    try:
+        return extract_text(file)
+    except Exception as error:
+        st.error(f"PDF에서 텍스트 추출 중 오류 발생: {error}")
+        return ""
+
+def handle_uploaded_file(file):
+    """업로드된 PDF 파일을 처리하고 벡터 스토어 준비."""
+    if not file:
+        return None, None
+
+    # 파일 유형에 따라 텍스트 추출
+    document_text = extract_text_from_pdf(file) if file.type == 'application/pdf' else ""
+    if not document_text:
+        st.error("업로드된 PDF 파일에서 텍스트를 추출할 수 없습니다.")
+        return None, None
+
+    # 문서를 작은 청크로 나누어 벡터화 준비
+    text_splitter = CharacterTextSplitter(
+        separator="\n",
+        chunk_size=1000,
+        chunk_overlap=200
+    )
+    document_chunks = text_splitter.create_documents([document_text])
+    st.info(f"{len(document_chunks)}개의 문서 단락이 생성되었습니다.")
+
+    # 유사성 검색을 위한 벡터 스토어 생성
+    vectorstore = FAISS.from_documents(document_chunks, embedding_model)
+    return vectorstore, document_text
+
+def get_rag_response(user_query, vectorstore, callback_handler):
+    """검색된 문서를 기반으로 사용자 질문에 대한 응답 생성."""
+    if not vectorstore:
+        st.error("벡터 스토어가 없습니다. 문서를 먼저 업로드하세요.")
+        return ""
+
+    # 가장 유사한 문서 3개 검색
+    retrieved_docs = vectorstore.similarity_search(user_query, k=3)
+    retrieved_text = "\n".join(f"문서 {i+1}: {doc.page_content}" for i, doc in enumerate(retrieved_docs))
+    print(retrieved_text)
+
+    # LLM 설정
+    chat_model = ChatOpenAI(model_name="gpt-4", temperature=0, streaming=True, callbacks=[callback_handler])
+
+    # RAG 프롬프트 생성
+    rag_prompt = [
+        SystemMessage(content="제공된 문서를 기반으로 사용자의 질문에 답변하세요. 정보가 없으면 '모르겠습니다'라고 답변하세요."),
+        HumanMessage(content=f"질문: {user_query}\n\n{retrieved_text}")
+    ]
+
+    try:
+        response = chat_model(rag_prompt)
+        return response.content
+    except Exception as error:
+        st.error(f"응답 생성 중 오류 발생: {error}")
+        return ""
+
+# Streamlit UI 설정
+st.set_page_config(page_title="개인 문서 기반 Q&A")
+st.title("🌞 개인 문서 기반 Q&A - PDF 📄")
+
+# 세션 상태 변수 초기화
+if "vectorstore" not in st.session_state:
+    st.session_state["vectorstore"] = None
+if "chat_history" not in st.session_state:
+    st.session_state["chat_history"] = [
+        ChatMessage(role="assistant", content="안녕하세요! 업로드된 문서를 기반으로 질문해 주세요.")
+    ]
+
+# PDF 업로드 기능
+uploaded_file = st.file_uploader("문서를 업로드하세요 (PDF만 가능):", type=["pdf"])
+if uploaded_file and uploaded_file != st.session_state.get("uploaded_file"):
+    vectorstore, document_text = handle_uploaded_file(uploaded_file)
+    if vectorstore:
+        st.session_state["vectorstore"] = vectorstore
+        st.session_state["uploaded_file"] = uploaded_file
+
+# 채팅 기록 표시
+chat_container = st.container()
+with chat_container:
+    for message in st.session_state.chat_history:
+        st.chat_message(message.role).write(message.content)
+
+# 사용자 질문 입력
+if user_query := st.chat_input("업로드된 문서를 기반으로 질문하세요:"):
+    st.session_state.chat_history.append(ChatMessage(role="user", content=user_query))
+    with chat_container:
+        st.chat_message("user").write(user_query)
+
+    # 응답 생성
+    with st.chat_message("assistant"):
+        stream_output = MarkdownStreamHandler(st.empty())
+        assistant_response = get_rag_response(user_query, st.session_state.get("vectorstore"), stream_output)
+        if assistant_response:
+            st.session_state.chat_history.append(ChatMessage(role="assistant", content=assistant_response))
+
+[ 3. 결과 프린트 ]
+* Warning 은 신경쓰지 말고 콘솔 윗 부분에 적힌 streamlit run 명령어를 복사해서 실행하도록 한다.
+  Ex> (venv) PS C:\pythonFile\myProject> run C:\pythonFile\myProject\book\book\5_1_ChatSystem_RAG.py
+
+
+[ 4. 기타 ]
+실행을 중지하려면, 파이참 터미널에서 Ctrl+C를 눌러 실행 중인 Streamlit 서버 프로세스를 직접 종료할 수 있다.

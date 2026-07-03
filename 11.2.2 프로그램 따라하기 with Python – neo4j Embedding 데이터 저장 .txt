@@ -1,0 +1,63 @@
+[1. 프로그램 목적]
+
+■	프로그램 설명 : 이 코드는 텍스트 데이터를 벡터화한 후, Neo4j 데이터베이스에 노드로 저장하는 과정을 구현한다.
+    BERT 기반의 임베딩 모델을 사용해 텍스트를 숫자 벡터로 변환하고, 이를 Neo4j의 노드로 저장하여 추후 검색이나 관계 분석에 활용할 수 있다.
+■	프로그램 기본 환경 : Phyton 3.10.10 /  Neo4j Desktop 1.6.1 / Graph DBMS 5.24.0
+■	사용 모델 : all-MiniLM-L6-v2(BERT 기반 모델)
+
+
+[ 2. 프로그램 소스 ]
+
+# 0. 라이브러리 임포트
+from sentence_transformers import SentenceTransformer
+from neo4j import GraphDatabase
+
+# 1. 임베딩 모델 로드
+model = SentenceTransformer('all-MiniLM-L6-v2')  # BERT 기반 모델 예시
+
+# 2. 텍스트 데이터 리스트 예시
+
+texts = [
+    "Neo4j is a graph database.",
+    "Graph databases are great for connected data.",
+    "Machine learning can create embeddings for text."
+]
+
+# 3. 텍스트를 임베딩 벡터로 변환
+embeddings = model.encode(texts)
+
+# 4. Neo4j 연결 설정
+uri = "bolt://localhost:7687"
+user = "neo4j"
+password = "iuujj0184$"
+
+driver = GraphDatabase.driver(uri, auth=(user, password))
+
+# 5. Neo4j에 저장하는 함수 정의
+def save_embeddings_to_neo4j(driver, texts, embeddings):
+    with driver.session() as session:
+        for i, (text, embedding) in enumerate(zip(texts, embeddings)):
+            session.run(
+                """
+                CREATE (n:Text {id: $id, content: $content, embedding: $embedding})
+                """,
+                id=i,
+                content=text,
+                embedding=embedding.tolist()  # 리스트 형식으로 변환
+            )
+
+# 6. 데이터 저장
+save_embeddings_to_neo4j(driver, texts, embeddings)
+
+# 7. 드라이버 닫기
+driver.close()
+
+[ 3. 결과 프린트 ]
+
+위 파일의 실행 결과는 아래와 같은 neo4j Graph 다이터그램으로 확인 할 수 있다.
+neo4j 의 클라이언트 화면의 Graph 다이터그램에서 3개의 Text 가 3개의 Node로 생성된 모습을 
+확인 할 수 있다.
+
+
+
+

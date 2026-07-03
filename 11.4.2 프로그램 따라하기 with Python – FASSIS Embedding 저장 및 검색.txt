@@ -1,0 +1,53 @@
+[1. 프로그램 목적]
+■	프로그램 설명 : FAISS 를 사용한 기본 입력/조회 프로그램이다.
+                  이 코드는 LangChain과 FAISS를 사용하여 주어진 문서에서 유사도 검색을 수행하는 프로그램이다. 
+                  OpenAI의 텍스트 임베딩을 통해 문서의 의미를 벡터로 변환하고, 이를 바탕으로 입력 쿼리와 가장 유사한 문서를 검색한다.
+■	프로그램 기본 환경 : Phyton 3.10.10  /   faiss-cpu 1.9.0                      
+■	사용 임베딩 방법 : OpenAIEmbedding 객체 사용
+
+
+[ 2. 프로그램 소스 ]
+
+# 파이참 터미널에서 FISS 설치 : pip install faiss-cpu    
+
+# Import library
+from langchain_community.vectorstores import FAISS
+from langchain_openai import OpenAIEmbeddings
+from langchain.text_splitter import CharacterTextSplitter
+from langchain.docstore.document import Document
+import os
+
+# Set the OpenAI API key as an environment variable
+os.environ["OPENAI_API_KEY"] = "OpenAI API Key를 입력"
+
+# Initialize OpenAI embeddings
+embeddings = OpenAIEmbeddings()
+
+# Sample documents (convert strings into LangChain Document objects)
+documents = [
+    Document(page_content="벡터(vector)는 크기와 방향을 가지는 수학적 개념으로, 기하학과 물리학에서 주로 다뤄졌으나 컴퓨터 과학과 머신 러닝에서도 핵심적인 역할을 합니다."),
+    Document(page_content="차원(dimension)은 수학, 물리학, 컴퓨터 과학에서 데이터의 복잡성이나 위치, 구조를 표현하기 위한 개념입니다."),
+    Document(page_content="FAISS(Facebook AI Similarity Search)는 Facebook AI에서 개발한 오픈 소스 라이브러리로, 대규모 벡터 데이터베이스에서 효율적인 벡터 검색과 유사도 검색을 수행하는 데 특화되어 있습니다.")
+
+]
+
+# Split documents into chunks (if needed)
+text_splitter = CharacterTextSplitter(chunk_size=500, chunk_overlap=50)
+split_documents = text_splitter.split_documents(documents)
+
+# Create FAISS vectorstore from split documents
+faiss_index = FAISS.from_documents(split_documents, embeddings)
+
+# Perform a similarity search on the FAISS vectorstore
+query = "What is FAISS?"
+results = faiss_index.similarity_search(query, k=5)
+
+# Output the search results
+print(f"Result :")
+print(results[0].page_content)
+
+
+[ 3. 결과 프린트 ]
+Result :
+FAISS(Facebook AI Similarity Search)는 Facebook AI에서 개발한 오픈 소스 라이브러리로, 대규모 벡터 데이터베이스에서 효율적인 벡터 검색과 유사도 검색을 수행하는 데 특화되어 있습니다.
+

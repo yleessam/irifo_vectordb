@@ -1,0 +1,97 @@
+[1. 프로그램 목적]
+
+■	프로그램 설명 : 이 프로그램은 주거지 설명 데이터를 로드하고 SentenceTransformer 모델을 사용하여 임베딩을 생성 한 후, “대학 근처의 밝은 집" 이라는 질문을 통해 가장 유사한 3개의 결과와, 유사도로 사용한 Distance 값을 출력한다.
+■	프로그램 기본 환경 : Phyton 3.10.10/ Chroma DB
+■	사용 모델 : SentenceTransformer version 3.0.1
+■	특이 사항 : 설명의 편이를 위해 아래 프로그램은 특정 기능 중심으로 간단히 개발함
+           ( Ex> Embedding 데이터 저장 영역 중심 설명) 
+■   주의사항
+    . collection_name = "Apt103" 에서 실행시 컬렉션명을 변경하면서 실행하도록 한다.
+■   주요 내용
+
+Vector DB 에 "all-MiniLM-L6-v2" 모델을 사용해서 간단히 Embedding을 통한 "입력" 과 "검색"을 수행해 보도록 한다.
+
+1) Chroma DB 에 아래의 내용을 입력해 본다.
+  . 문장 ( Sentense )
+  . 임베딩
+2) Embedding 사용 모델
+  . sentence-transformers/all-MiniLM-L6-v2
+3) 질문(Query)에 대하여 검색(Retrieve)해 본다.
+  . 질문을 임베딩 후 질문 요청
+  . 질문 임베딩을 기준으로 유사한 문장 검색 
+  . 검색 문장/유사도 점수 Return 
+4) 주의사항
+  . collection_name = "Apt103" 에서 실행시 컬렉션명을 변경하면서 실행하도록 한다.
+
+
+[ 2. 프로그램 소스 ]
+
+'''
+■	프로그램 기본 환경 : Phyton 3.10.10/ Chroma DB 0.6.3
+■	사용 모델 : SentenceTransformer version 3.0.1
+■	환경 설치 관련 명령어( Pycharm Console 기준 )
+     . pip install chromadb 
+	 . pip install sentence-transformers
+'''
+
+#임포트 및 설정
+import chromadb
+from sentence_transformers import SentenceTransformer
+import warnings
+warnings.filterwarnings("ignore", category=FutureWarning, module="transformers.tokenization_utils_base")
+
+
+#샘플 데이터 로드
+sentences = [
+        'A stylish 3 bedroom townhouse close to the river with a private balcony.',
+        'A serene 4 bedroom cabin in the mountains with a cozy fireplace.',
+        'A sleek studio apartment in a vibrant neighborhood with a shared gym.',
+        'A charming 2 bedroom cottage in the countryside with scenic views.',
+        'A bright 2 bedroom flat near the university with a spacious living area.',
+        'A modern 1 bedroom loft in the heart of the city with a rooftop terrace.'
+    ]
+
+# 임베딩 생성
+model = SentenceTransformer('sentence-transformers/all-MiniLM-L6-v2')
+embeddings = model.encode(sentences)
+
+# Chroma DB 클라이언트 초기화
+client = chromadb.PersistentClient()
+
+# Collection 생성
+collection_name = "Apt103"
+collection = client.get_or_create_collection(collection_name)
+
+# 항목 추가 , 항목 embedding 등록  to Chroma DB collection
+for idx, description in enumerate(sentences):
+    collection.add(
+        ids=[str(idx)],
+        embeddings=[embeddings[idx].tolist()],  # Chroma DB requires lists for embeddings
+        metadatas=[{"description": description}]
+   )
+
+# Query 생성: Searching for a property similar to "luxury beach house with a pool"
+query = "bright house near a university"
+query_embedding = model.encode([query])
+
+# 유사도검색 in Chroma DB
+results = collection.query(
+    query_embeddings=query_embedding.tolist(),
+    n_results=3,  # Number of similar results to return
+    include=['metadatas', 'distances']  # Include both metadata and distances
+)
+
+# 결과 출력
+for idx,(metadata, distance) in enumerate(zip(results['metadatas'][0], results['distances'][0])):
+    print(f"Result {idx+1}: {metadata['description']}(Distance: {distance})")
+
+
+[ 3. 결과 프린트 ]
+
+Result 1: A bright 2 bedroom flat near the university with a spacious living area.(Distance: 0.560243807415561)
+Result 2: A sleek studio apartment in a vibrant neighborhood with a shared gym.(Distance: 1.0175742073108693)
+Result 3: A modern 1 bedroom loft in the heart of the city with a rooftop terrace.(Distance: 1.1594300907795825)
+
+[ 4. 기타 ]
+
+위에서 Distance 는 유사도를 "길이" 기준으로 산정한 것이고 Result 1의 점수가 제일 짧은 거리로 유사도가 높음을 의미한다.

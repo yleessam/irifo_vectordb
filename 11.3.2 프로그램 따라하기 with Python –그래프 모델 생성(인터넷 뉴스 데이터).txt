@@ -1,0 +1,127 @@
+[1. 프로그램 목적]
+
+■	프로그램 설명 : 이 프로그램은 인터넷 뉴스 데이터를 크롤링하여 제목, 날짜, 미디어 정보를 수집한 후, 형태소 분석을 통해 뉴스 제목에서 키워드를 추출한다. 추출된 데이터는 일부 클리닝 과정을 거쳐, Neo4j 그래프 데이터베이스에 뉴스 기사, 미디어, 키워드 간의 노드와 관계를 생성하여 저장한다. 이를 통해 뉴스 데이터의 연결성과 관계를 그래프 모델을 통해 분석할 수 있는 기반을 마련한다.
+■	프로그램 기본 환경 : Phyton 3.10.10 /  Neo4j DB
+■	기본 프로세스 
+    - 2024년 10월 네이버 뉴스 제목 데이터를 스크래핑하고 데이터프레임으로 저장
+    - 뉴스 제목에서 주요 키워드를 추출
+    - Neo4j 데이터베이스에 뉴스 및 키워드 관계를 포함한 데이터를 구조적으로 저장
+
+
+[ 2. 프로그램 소스 ]
+
+import requests
+import pandas as pd
+import re
+from bs4 import BeautifulSoup
+from konlpy.tag import Komoran
+from neo4j import GraphDatabase
+import logging
+
+# 로깅 설정
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+
+# 전역 설정
+HEADERS = {'User-Agent': 'Mozilla/5.0'}
+URI = "bolt://localhost:7687"
+USER = "neo4j"
+PASSWORD = "iuujj0184$"
+
+# 함수 정의
+def fetch_news(date):
+    url = f"https://news.naver.com/main/ranking/popularDay.nhn?date={date}"
+    response = requests.get(url, headers=HEADERS)
+    response.raise_for_status()
+    soup = BeautifulSoup(response.text, 'html.parser')
+    rankingnews = soup.find_all(class_='rankingnews_box')
+
+    news_list = []
+    for item in rankingnews:
+        media = item.a.strong.text.strip()
+        news = item.find_all(class_="list_content")
+        for new in news:
+            news_list.append({
+                'media': media,
+                'src': f"https://news.naver.com/{new.a['href']}",
+                'title': new.a.text.strip(),
+                'date': date
+            })
+    return news_list
+
+def extract_keywords(df):
+    komoran = Komoran()
+    df['keyword'] = df['title'].apply(lambda title: ', '.join([
+        noun for noun in komoran.nouns(title) if len(noun) > 1
+    ]))
+    return df
+
+def clean_title(title):
+    return re.sub(r'[^a-zA-Z0-9ㄱ-ㅣ가-힣]', '', title)
+
+def save_to_neo4j(df):
+    def add_article_query(tx, title, date, media, keyword):
+        tx.run("""
+            MERGE (a:News1 {title: $title, date: $date, media: $media, keyword: $keyword})
+        """, title=title, date=date, media=media, keyword=keyword)
+
+    def add_media_query(tx):
+        tx.run("""
+            MATCH (a:News1)
+            MERGE (b:NewsMedia1 {name: a.media})
+            MERGE (a)<-[r:Print]-(b)
+        """)
+
+    def add_keyword_query(tx):
+        tx.run("""
+            MATCH (a:News1)
+            UNWIND split(a.keyword, ', ') AS k
+            MERGE (b:NewsKeyword1 {name: k})
+            MERGE (a)-[r:Consists_of]->(b)
+        """)
+
+    driver = GraphDatabase.driver(URI, auth=(USER, PASSWORD))
+    with driver.session() as session:
+        for _, row in df.iterrows():
+            session.execute_write(add_article_query, title=row['clean_title'], date=row['date'], media=row['media'], keyword=row['keyword'])
+        session.execute_write(add_media_query)
+        session.execute_write(add_keyword_query)
+    driver.close()
+
+# 메인 실행
+def main():
+    logging.info("뉴스 데이터를 수집합니다.")
+    start_date, end_date = 20241004, 20241020
+    all_news = []
+
+    for date in range(start_date, end_date + 1):
+        try:
+            news = fetch_news(str(date))
+            all_news.extend(news)
+            logging.info(f"{date}의 뉴스를 성공적으로 수집했습니다.")
+        except Exception as e:
+            logging.error(f"{date}의 뉴스 수집 중 오류 발생: {e}")
+
+    df = pd.DataFrame(all_news)
+
+    logging.info("키워드 추출 중입니다.")
+    df = extract_keywords(df)
+
+    logging.info("뉴스 제목 정리 중입니다.")
+    df['clean_title'] = df['title'].apply(clean_title)
+
+    logging.info("Neo4j에 데이터를 저장합니다.")
+    save_to_neo4j(df)
+
+    logging.info("작업이 완료되었습니다.")
+
+if __name__ == "__main__":
+    main()
+
+
+[ 3. 결과 리턴 ]
+
+인터넷 뉴스 데이터를 크롤링하여 뉴스 제목과 관련 키워드 노드를 생성하고 뉴스제목과 키워드와의 관계를 생성한 그래프 모델이 만들어진다.
+
+
+
+
